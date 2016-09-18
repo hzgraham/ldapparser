@@ -1,43 +1,53 @@
-#!/usr/bin/env pythonf
+#!/usr/bin/env python
 
-import ldap, argparse
+import ldap, argparse, csv
 from ldap import sasl, modlist
 
 
-def ldapQuery(self,args):
-    ldap_host = ""
-    ldap_base = ""
-    ldap_entry = ""
-    team = []
+def ldapQuery(entry):
+    ldap_host = args.ldap_host
+    ldap_base_dn = args.basedn
+    search_entry = entry
+
     l = ldap.initialize(ldap_host)
 
-    try:
-        self.basedn = args.basedn
-        self.cacert = args.cacert
-        self.look_up = args.lookup_host
-    except:
-        print "Arguments need to be provided"
-    # Authenticated connection created
-    self.auth = ldap.sasl.gssapi("")
+    # Authenticated connection created, GSSAPI is used
+    auth = ldap.sasl.gssapi("")
 
-    if self.ldap_host.startswith('ldap://'):
-        self.ldap_connection = ldap.initialize(self.ldap_host)
+
+    if ldap_host.startswith('ldap://'):
+        ldap_connection = ldap.initialize(ldap_host)
     else:
-        self.ldap_connection = ldap.initialize("ldap://" + self.ldap_host)
+        ldap_connection = ldap.initialize("ldap://" + ldap_host)
 
-    print "GSSAPI bind happening"
-    self.ldap_connection.sasl_interactive_bind_s("", self.auth)
+    ldap_connection.sasl_interactive_bind_s("", auth)
 
-    self.result = self.ldap_connection.search_s( self.ldap_base_dn, ldap.SCOPE_SUBTREE, self.search_entry)
-    print self.result
+    result = ldap_connection.search_s( ldap_base_dn, ldap.SCOPE_SUBTREE, "cn="+search_entry)
+    print result
+    return result
     #result = l.search_s(ldap_base,ldap.SCOPE_SUBTREE,ldap_entry)
 
-def parseCSV(filename):
-    filename = args.filename
+def parseCSV(filename, args):
     reader = csv.reader(open(filename, "rb"), delimiter=',')
+    exists_in_ldap = []
+    not_in_ldap = []
+    # print list(reader)
+    # create a list of the CSV data
+    group_list = list(reader)
+    for group in group_list:
+        print "Group: ", group[0]
+        result = ldapQuery(group[0])
+        if not result:
+            print "group: ", group[0], " is not in LDAP"
+            not_in_ldap.append(group[0])
+        else:
+            exists_in_ldap.append(group[0])
+        print "#################\n"
+    return not_in_ldap
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParse(description="Comparing CSV to LDAP")
+    global args
+    parser = argparse.ArgumentParser(description="Comparing CSV to LDAP")
 
     parser.add_argument('-f',
                         required=True,
@@ -46,7 +56,7 @@ if __name__ == "__main__":
 
     parser.add_argument('--ldap-host','-m',
                         required=True,
-                        dest='lookup_host',
+                        dest='ldap_host',
                         help='enter the LDAP source host uri for example: ldap.example.com')
 
     parser.add_argument('--basedn','-b',
@@ -54,18 +64,19 @@ if __name__ == "__main__":
                         dest='basedn',
                         help='The search base for LDAP for example: dc=example,dc=com')
 
-    parser.add_argument('--cacert','-c',
-                        required=True,
-                        dest='cacert',
-                        help='The path to the CA cert file or directory containing it,  if a directory then make sure it is managed by the c_rehash utility')
+    # parser.add_argument('--cacert','-c',
+    #                     required=True,
+    #                     dest='cacert',
+    #                     help='The path to the CA cert file or directory containing it,  if a directory then make sure it is managed by the c_rehash utility')
 
-    parser.add_argument('--password', metavar='password', \
-                        dest='password', \
-                        nargs='*', \
-                        #required=True, \
-                        action=PromptAction, \
-                        help='Plain text password for user')
+    # parser.add_argument('--password', metavar='password', \
+    #                     dest='password', \
+    #                     nargs='*', \
+    #                     #required=True, \
+    #                     action=PromptAction, \
+    #                     help='Plain text password for user')
 
     args = parser.parse_args()
-
-    ldapQuery(args)
+    filename = args.filename
+    not_in_ldap = parseCSV(filename, args)
+    print "Groups not in LDAP: ", not_in_ldap
